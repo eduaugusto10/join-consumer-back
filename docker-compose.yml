@@ -1,0 +1,112 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: clientesdb
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: eduardo
+      POSTGRES_PASSWORD: eduardo
+      POSTGRES_DB: clientesdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eduardo -d clientesdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper (needed for Kafka)
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - app-network
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092" # Porta externa que sua aplicação pode acessar
+      - "29092:29092" # Porta interna para comunicação entre contêineres
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_NAMES: PLAINTEXT,PLAINTEXT_HOST
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - app-network
+    healthcheck:
+      test:
+        ["CMD", "kafka-topics", "--bootstrap-server", "kafka:29092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Publisher Service
+  api-publisher:
+    build:
+      context: ./publisher-back
+      dockerfile: Dockerfile
+    container_name: publisher-back
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/clientesdb
+      SPRING_DATASOURCE_USERNAME: eduardo
+      SPRING_DATASOURCE_PASSWORD: eduardo
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      APP_KAFKA_TOPIC: client-topic
+    networks:
+      - app-network
+
+  # Consumer Service
+  consumer-service:
+    build:
+      context: ./consumer-back
+      dockerfile: Dockerfile
+    container_name: consumer-back
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      api-publisher:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/clientesdb
+      SPRING_DATASOURCE_USERNAME: eduardo
+      SPRING_DATASOURCE_PASSWORD: eduardo
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_CONSUMER_GROUP_ID: clients-group
+      APP_KAFKA_TOPIC: client-topic
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

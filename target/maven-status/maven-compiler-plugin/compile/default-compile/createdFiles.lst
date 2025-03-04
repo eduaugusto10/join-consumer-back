@@ -1,0 +1,7 @@
+com\join\consumer\config\KafkaConsumerConfig.class
+com\join\consumer\ConsumerApplication.class
+com\join\consumer\services\ClientConsumerService.class
+com\join\consumer\config\WebConfig.class
+com\join\consumer\models\Client$ClientBuilder.class
+com\join\consumer\repositories\ClientRepository.class
+com\join\consumer\models\Client.class
